@@ -59,32 +59,135 @@ log = logging.getLogger("hsr_news")
 
 # ---------- 수집 ----------
 
-REDDIT_INTERVAL = 8  # Reddit 요청 사이 최소 간격(초). 짧으면 429(요청 제한)가 남
-_last_reddit_call = 0.0
+REDDIT_INTERVAL = 8  # 로그인 없이 요청할 때 요청 사이 최소 간격(초)
+# 로그인 없는 요청은 1분 창마다 1번만 허용됨. 응답 헤더의 x-ratelimit-remaining/reset을 보고
+# 남은 횟수가 없으면 창이 풀릴 때까지 기다렸다가 보낸다.
+# .env에 REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET이 있으면 OAuth 앱 전용 토큰으로
+# oauth.reddit.com의 JSON API를 쓴다 (분당 약 100회 허용). 없거나 실패하면 RSS로 수집.
+REDDIT_API = "https://oauth.reddit.com"
+_reddit_ready_at = 0.0
+_reddit_token = None
+
+
+def reddit_login():
+    """OAuth 앱 전용(client_credentials) 토큰을 받는다."""
+    global _reddit_token
+    client_id, secret = os.environ.get("REDDIT_CLIENT_ID"), os.environ.get("REDDIT_CLIENT_SECRET")
+    if not (client_id and secret):
+        return
+    try:
+        resp = requests.post("https://www.reddit.com/api/v1/access_token", auth=(client_id, secret),
+                             data={"grant_type": "client_credentials"},
+                             headers={"User-Agent": USER_AGENT}, timeout=20)
+        resp.raise_for_status()
+        _reddit_token = resp.json()["access_token"]
+        log.info("Reddit OAuth 로그인 성공")
+    except Exception as exc:
+        log.warning("Reddit OAuth 로그인 실패 → RSS로 수집: %s", exc)
 
 
 def reddit_wait():
-    global _last_reddit_call
-    delay = _last_reddit_call + REDDIT_INTERVAL - time.time()
+    delay = _reddit_ready_at - time.time()
     if delay > 0:
         time.sleep(delay)
-    _last_reddit_call = time.time()
+
+
+def _reddit_after(seconds):
+    """다음 Reddit 요청을 지금부터 seconds초 뒤로 미룬다."""
+    global _reddit_ready_at
+    _reddit_ready_at = max(_reddit_ready_at, time.time() + seconds)
+
+
+def _reddit_note_limit(resp):
+    """응답 헤더를 보고 다음 요청 가능 시각을 정한다."""
+    _reddit_after(1 if _reddit_token else REDDIT_INTERVAL)
+    try:
+        remaining = float(resp.headers.get("x-ratelimit-remaining", 1))
+        reset = float(resp.headers.get("x-ratelimit-reset", 60))
+    except ValueError:
+        return
+    if remaining < 1 or resp.status_code == 429:
+        _reddit_after(reset + 1)
 
 
 def reddit_get(url):
-    """Reddit 요청: 간격을 두고, 429면 60초·120초 기다렸다 다시 시도한다."""
-    for wait in (60, 120, None):
+    """Reddit 요청: 요청 제한 창이 풀릴 때까지 기다렸다 보내고, 그래도 429면 두 번까지 다시 시도한다."""
+    headers = {"User-Agent": USER_AGENT}
+    if url.startswith(REDDIT_API):
+        headers["Authorization"] = f"bearer {_reddit_token}"
+    for _ in range(3):
         reddit_wait()
-        resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
-        if resp.status_code != 429 or wait is None:
+        resp = requests.get(url, headers=headers, timeout=20)
+        _reddit_note_limit(resp)
+        if resp.status_code != 429:
             break
-        log.info("Reddit 요청 제한(429) → %d초 대기", wait)
-        time.sleep(wait)
+        log.info("Reddit 요청 제한(429) → %d초 대기", _reddit_ready_at - time.time())
     resp.raise_for_status()
     return resp
 
 
+def reddit_item(post_id, title, poster, posted, url, text, media, image_url, video_url=None):
+    leaker = re.search(r"\bvia\s+(.+)$", title, re.I)
+    return {
+        "id": f"leaks:{post_id}",  # t3_xxxx (RSS의 id와 API의 name이 같은 형태)
+        "source": "reddit",
+        "board": f"Reddit r/{SUBREDDIT}",
+        "title": title,
+        "leaker": leaker.group(1).strip() if leaker else None,
+        "poster": poster,
+        "posted": posted.astimezone(KST),
+        "url": url,
+        "text": text[:1500],
+        "media": media,
+        "image_url": image_url,
+        "video_url": video_url,  # API로 받은 영상 직접 주소 (RSS로 받으면 없음 → yt-dlp)
+        "images": [],          # WORK_DIR에 받은 이미지 파일명 (스크린샷 또는 영상 프레임)
+        "comments": [],        # 이미지가 없거나 부족한 글의 상위 댓글
+        "source_links": [],    # 게시자가 댓글로 단 원 출처 링크
+    }
+
+
 def fetch_leaks():
+    global _reddit_token
+    if _reddit_token:
+        try:
+            return fetch_leaks_api()
+        except Exception as exc:
+            log.warning("Reddit API 수집 실패 → RSS로 다시 시도: %s", exc)
+            _reddit_token = None
+    return fetch_leaks_rss()
+
+
+def fetch_leaks_api():
+    resp = reddit_get(f"{REDDIT_API}/r/{SUBREDDIT}/new?limit=25&raw_json=1")
+    items = []
+    for child in resp.json()["data"]["children"]:
+        d = child["data"]
+        src = (d.get("crosspost_parent_list") or [d])[0]  # 크로스포스트면 원글의 미디어를 봄
+        link = src.get("url_overridden_by_dest") or ""
+        video = (src.get("secure_media") or src.get("media") or {}).get("reddit_video") or {}
+        image_url = media = video_url = None
+        if re.match(r"https://i\.redd\.it/\S+\.(?:jpe?g|png|webp)$", link):
+            image_url, media = link, "image"
+        elif src.get("is_gallery"):
+            media = "gallery"
+            first = (((src.get("gallery_data") or {}).get("items") or [{}])[0]).get("media_id")
+            mime = ((src.get("media_metadata") or {}).get(first) or {}).get("m", "image/jpg")
+            ext = mime.split("/")[-1].replace("jpeg", "jpg")
+            image_url = f"https://i.redd.it/{first}.{ext}" if first else None
+        elif video:
+            media, video_url = "video", video.get("fallback_url")
+        items.append(reddit_item(
+            d["name"], d["title"], f"u/{d.get('author', '')}",
+            datetime.fromtimestamp(d["created_utc"], timezone.utc),
+            f"https://www.reddit.com{d['permalink']}",
+            re.sub(r"\s+", " ", d.get("selftext", "")).strip(), media, image_url, video_url,
+        ))
+    items.sort(key=lambda it: it["posted"], reverse=True)
+    return items
+
+
+def fetch_leaks_rss():
     resp = reddit_get(LEAKS_RSS)
     feed = feedparser.parse(resp.content)
     items = []
@@ -102,24 +205,9 @@ def fetch_leaks():
             image_url, media = (f"https://i.redd.it/{m.group(1)}" if m else None), "gallery"
         elif not image and "v.redd.it/" in raw:
             media = "video"
-        leaker = re.search(r"\bvia\s+(.+)$", e.title, re.I)
         posted = datetime.fromisoformat(e.get("published", e.get("updated")).replace("Z", "+00:00"))
-        items.append({
-            "id": f"leaks:{e.get('id', e.link)}",
-            "source": "reddit",
-            "board": f"Reddit r/{SUBREDDIT}",
-            "title": e.title,
-            "leaker": leaker.group(1).strip() if leaker else None,
-            "poster": e.get("author", "").replace("/u/", "u/"),
-            "posted": posted.astimezone(KST),
-            "url": e.link,
-            "text": text[:1500],
-            "media": media,
-            "image_url": image_url,
-            "images": [],          # WORK_DIR에 받은 이미지 파일명 (스크린샷 또는 영상 프레임)
-            "comments": [],        # 이미지가 없거나 부족한 글의 상위 댓글
-            "source_links": [],    # 게시자가 댓글로 단 원 출처 링크
-        })
+        items.append(reddit_item(e.get("id", e.link), e.title, e.get("author", "").replace("/u/", "u/"),
+                                 posted, e.link, text, media, image_url))
     items.sort(key=lambda it: it["posted"], reverse=True)
     return items
 
@@ -201,23 +289,41 @@ def download_image(it, n, url=None):
     it["images"].append(name)
 
 
+def download_video_direct(url, video, max_bytes=40 * 1024 * 1024):
+    """API가 준 v.redd.it 직접 주소로 영상을 받는다 (Reddit 요청 제한과 무관)."""
+    try:
+        with requests.get(url, headers={"User-Agent": USER_AGENT}, stream=True, timeout=60) as resp:
+            resp.raise_for_status()
+            if int(resp.headers.get("content-length", 0)) > max_bytes:
+                raise RuntimeError("40MB 초과")
+            with open(video, "wb") as f:
+                for chunk in resp.iter_content(1 << 20):
+                    f.write(chunk)
+        return True
+    except Exception as exc:
+        log.info("영상 직접 받기 실패 → yt-dlp로 시도: %s", exc)
+        video.unlink(missing_ok=True)
+        return False
+
+
 def video_frames(it, n, count=4):
-    """영상을 480p로 받아 고르게 프레임 count장을 뽑는다 (yt-dlp + ffmpeg)."""
+    """영상을 받아 고르게 프레임 count장을 뽑는다 (직접 주소 또는 yt-dlp 480p + ffmpeg)."""
     import imageio_ffmpeg
     ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
     video = WORK_DIR / f"{n:02d}_video.mp4"
     no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    for attempt in range(2):
+    direct = bool(it.get("video_url")) and download_video_direct(it["video_url"], video)
+    for _ in range(0 if direct else 2):
         reddit_wait()
         dl = subprocess.run(
             [sys.executable, "-m", "yt_dlp", "-q", "--no-warnings", "--max-filesize", "40M",
              "-f", "bv[height<=480][protocol=https]/bv[height<=480]/worst", "-o", str(video), it["url"]],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180, creationflags=no_window,
         )
+        # yt-dlp의 응답 헤더는 볼 수 없으니 요청 제한 창 하나(60초)를 쓴 것으로 본다
+        _reddit_after(61)
         if video.exists():
             break
-        if attempt == 0:
-            time.sleep(60)  # 대개 Reddit 요청 제한 → 잠시 후 한 번 더
     if not video.exists():
         raise RuntimeError(f"영상 다운로드 실패: {dl.stderr.strip()[-200:]}")
     try:
@@ -240,12 +346,25 @@ def video_frames(it, n, count=4):
 
 def fetch_comments(it, limit=8):
     """글의 상위 댓글과, 게시자가 댓글로 남긴 원 출처 링크를 가져온다."""
-    resp = reddit_get(it["url"].rstrip("/") + "/.rss?limit=15")
-    for e in feedparser.parse(resp.content).entries[1:]:  # 첫 항목은 글 자체
-        author = e.get("author", "").replace("/u/", "u/")
+    if _reddit_token:
+        post_id = it["id"].split("_", 1)[-1]  # leaks:t3_xxxx → xxxx
+        resp = reddit_get(f"{REDDIT_API}/comments/{post_id}?limit=15&raw_json=1")
+        entries, stack = [], list(reversed(resp.json()[1]["data"]["children"]))
+        while stack:  # 답글까지 화면에 보이는 순서대로 펼침 ("more" 항목은 건너뜀)
+            c = stack.pop()
+            if c["kind"] != "t1":
+                continue
+            entries.append((f"u/{c['data'].get('author', '')}", c["data"].get("body_html", "")))
+            replies = c["data"].get("replies") or {}
+            stack += reversed((replies.get("data") or {}).get("children", []))
+    else:
+        resp = reddit_get(it["url"].rstrip("/") + "/.rss?limit=15")
+        entries = [(e.get("author", "").replace("/u/", "u/"),
+                    e.content[0].value if "content" in e else e.get("summary", ""))
+                   for e in feedparser.parse(resp.content).entries[1:]]  # 첫 항목은 글 자체
+    for author, raw in entries:
         if author == "u/AutoModerator":
             continue
-        raw = e.content[0].value if "content" in e else e.get("summary", "")
         body = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", raw))).strip()
         if author == it["poster"]:
             links = re.findall(r'href="(https?://[^"]+)"', html.unescape(raw))
@@ -452,29 +571,30 @@ def summarize(items):
 # ---------- 리포트 ----------
 
 CSS = """
-@page { size: A4; margin: 14mm 12mm; }
-body { font-family: 'Malgun Gothic', sans-serif; color: #1f2328; line-height: 1.6; font-size: 10.5pt; }
-h1 { font-size: 18pt; margin: 0 0 2px; }
-.sub { color: #656d76; font-size: 9pt; margin-bottom: 12px; }
-.warn { background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px; padding: 8px 10px; font-size: 9pt; margin-bottom: 12px; }
-.overview { background: #f6f8fa; border-left: 4px solid #8250df; padding: 8px 12px; margin-bottom: 16px; white-space: pre-line; }
-.card { border: 1px solid #d0d7de; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; break-inside: avoid; }
-.card h2 { font-size: 12pt; margin: 0 0 4px; }
-.tag { display: inline-block; background: #8250df; color: #fff; border-radius: 10px; padding: 0 8px; font-size: 8.5pt; margin-right: 6px; }
-.src { width: 100%; border-collapse: collapse; font-size: 8.5pt; margin-top: 8px; }
-.src th { text-align: left; color: #656d76; font-weight: normal; width: 80px; padding: 1px 6px 1px 0; vertical-align: top; }
+@page { size: A4; margin: 14mm 12mm; background: #000; }
+html { background: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: 'Malgun Gothic', sans-serif; background: #000; color: #e6e6e6; line-height: 1.6; font-size: 12pt; }
+h1 { font-size: 21pt; margin: 0 0 2px; color: #fff; }
+.sub { color: #9da5ae; font-size: 10pt; margin-bottom: 12px; }
+.warn { background: #3a2f00; border: 1px solid #d4a72c; color: #f5e3a3; border-radius: 6px; padding: 8px 10px; font-size: 10pt; margin-bottom: 12px; }
+.overview { background: #161b22; border-left: 4px solid #a371f7; padding: 8px 12px; margin-bottom: 16px; white-space: pre-line; }
+.card { background: #0d1117; border: 1px solid #3d444d; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; break-inside: avoid; }
+.card h2 { font-size: 14pt; margin: 0 0 4px; color: #fff; }
+.tag { display: inline-block; background: #8250df; color: #fff; border-radius: 10px; padding: 0 8px; font-size: 9.5pt; margin-right: 6px; }
+.src { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-top: 8px; }
+.src th { text-align: left; color: #9da5ae; font-weight: normal; width: 90px; padding: 1px 6px 1px 0; vertical-align: top; }
 .src td { padding: 1px 0; word-break: break-all; }
-.src a { color: #0969da; }
-.shot { display: block; max-width: 100%; max-height: 80mm; margin-top: 8px; border: 1px solid #d0d7de; border-radius: 4px; }
-.frames { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 8px; }
-.frames img { width: 100%; border: 1px solid #d0d7de; border-radius: 4px; }
-.none { color: #656d76; }
-.also { font-size: 8.5pt; color: #8250df; font-weight: bold; margin-top: 8px; }
-.context { background: #ddf4ff; border-radius: 6px; padding: 6px 10px; margin-top: 6px; font-size: 9.5pt; }
-.context b { color: #0969da; }
-.terms { border: 1px solid #d0d7de; border-radius: 8px; padding: 8px 12px; margin-bottom: 16px; }
-.terms h2 { font-size: 12pt; margin: 0 0 6px; }
-.terms dl { margin: 0; font-size: 9.5pt; }
+.src a { color: #58a6ff; }
+.shot { display: block; max-width: 100%; max-height: 80mm; margin-top: 8px; border: 3px solid #fff; border-radius: 4px; }
+.frames { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.frames img { width: 100%; box-sizing: border-box; border: 3px solid #fff; border-radius: 4px; }
+.none { color: #9da5ae; }
+.also { font-size: 9.5pt; color: #a371f7; font-weight: bold; margin-top: 8px; }
+.context { background: #0c2d4a; border-radius: 6px; padding: 6px 10px; margin-top: 6px; font-size: 11pt; }
+.context b { color: #58a6ff; }
+.terms { background: #0d1117; border: 1px solid #3d444d; border-radius: 8px; padding: 8px 12px; margin-bottom: 16px; }
+.terms h2 { font-size: 14pt; margin: 0 0 6px; color: #fff; }
+.terms dl { margin: 0; font-size: 11pt; }
 .terms dt { font-weight: bold; margin-top: 4px; }
 .terms dd { margin: 0 0 0 12px; }
 """
@@ -637,6 +757,7 @@ def main():
     load_dotenv(BASE_DIR / ".env")
     setup_logging()
     log.info("=== 실행 시작%s ===", " (dry-run)" if args.dry_run else "")
+    reddit_login()
 
     seen = load_seen()
     seen_set = set() if args.ignore_seen else set(seen)

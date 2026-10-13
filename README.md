@@ -17,7 +17,7 @@
 - PDF는 Microsoft Edge로 만듭니다.
 - 캐릭터 이름은 HoYoLAB 위키의 한국 서버 표기를 따릅니다. 운명의 길·속성·소속 정보도 함께 가져오며, `characters.json`에 7일간 저장합니다.
 - 이미 보낸 글은 `seen.json`에 기록해서 다시 보내지 않습니다. 다시 보내려면 `--ignore-seen` 옵션을 씁니다.
-- Reddit은 로그인 없이 접속하면 요청 횟수를 제한하기 때문에, 요청 사이에 간격을 두고 막히면 기다렸다가 다시 시도합니다.
+- Reddit은 로그인 없이 접속하면 1분에 1번만 요청할 수 있어서, 제한이 풀릴 때까지 기다렸다가 다음 요청을 보냅니다. Reddit API 앱 정보를 `.env`에 넣으면 이 제한이 1분에 약 100번으로 늘어납니다(아래 4번).
 
 ## 처음 설정
 
@@ -27,6 +27,11 @@
    ```
 2. Google 계정에서 2단계 인증을 켜고 [앱 비밀번호](https://myaccount.google.com/apppasswords)를 만듭니다.
 3. `.env.example`을 복사해 이름을 `.env`로 바꾸고, `GMAIL_APP_PASSWORD`에 앱 비밀번호를 넣습니다.
+4. (선택) Reddit 요청 제한을 늘리려면 Reddit에 로그인한 뒤 <https://www.reddit.com/prefs/apps>에서 **create another app…** 을 눌러 앱을 만듭니다.
+   - 종류는 **script**, redirect uri는 `http://localhost:8080`으로 둡니다.
+   - 앱 이름 아래의 14~22자 문자열을 `REDDIT_CLIENT_ID`, **secret** 값을 `REDDIT_CLIENT_SECRET`에 넣습니다.
+   - Reddit이 API 이용 신청서(용도 설명)를 먼저 요구하면, 개인용 뉴스 요약에 읽기 전용으로 쓴다고 적어 신청합니다.
+   - 로그인에 실패하면 로그에 경고를 남기고 로그인 없이 수집합니다.
 
 ## 실행
 

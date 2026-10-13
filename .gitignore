@@ -4,3 +4,4 @@ preview.pdf
 logs/
 _images/
 characters.json
+__pycache__/

@@ -18,7 +18,7 @@ powershell -ExecutionPolicy Bypass -File register_task.ps1 [-Time 07:30]   # 예
 
 테스트나 린터는 없습니다. 변경 후에는 `--dry-run`으로 실행해 `preview.pdf`와 `_images/report.html`을 확인합니다. dry-run도 Reddit·아카라이브에 실제로 접속하고 `claude -p`를 호출하므로 몇 분 걸리고 구독 사용량이 차감됩니다. 실행 기록은 `logs/YYYY-MM.log`에 남습니다.
 
-`.env`에는 `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`(Gmail 앱 비밀번호), 선택 항목인 `MAIL_TO`가 필요합니다.
+`.env`에는 `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`(Gmail 앱 비밀번호)가 필요하고, 선택 항목으로 `MAIL_TO`, `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`을 넣을 수 있습니다.
 
 ## 처리 흐름 (`main()`)
 
@@ -32,7 +32,7 @@ powershell -ExecutionPolicy Bypass -File register_task.ps1 [-Time 07:30]   # 예
 ## 유의할 점
 
 - **한국어 표기**: `characters.json`은 HoYoLAB 위키에서 받은 캐릭터 이름(영문 → 한국어 + 운명의 길·속성·등급·세력)을 7일간 저장하는 캐시이며 `fetch_character_names()`가 만듭니다. `FIXED_TERMS`에는 운명의 길·속성·자주 쓰는 게임 용어가 들어 있습니다. 둘 다 프롬프트에 넣어 Claude가 한국 서버 공식 표기를 쓰게 합니다. 사전을 강제로 새로 받으려면 `characters.json`을 지웁니다.
-- **요청 제한**: Reddit 요청(yt-dlp 다운로드 포함)은 모두 `reddit_get()` / `reddit_wait()`를 거쳐야 합니다(8초 간격, 429 시 대기 후 재시도). 아카라이브 요청은 `arca_get()`을 거칩니다(3초 대기, 브라우저 UA).
+- **요청 제한**: Reddit 요청(yt-dlp 다운로드 포함)은 모두 `reddit_get()` / `reddit_wait()`를 거쳐야 합니다(로그인 없는 요청은 1분 창마다 1번만 허용되므로 응답 헤더 `x-ratelimit-remaining`/`reset`을 보고 창이 풀릴 때까지 대기. yt-dlp 호출 뒤에는 61초 대기). `.env`에 `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`이 있으면 `reddit_login()`이 앱 전용 OAuth 토큰을 받고, `fetch_leaks_api()`·`fetch_comments()`가 `oauth.reddit.com`의 JSON API를 씁니다. 이때 영상은 API가 준 `video_url`(v.redd.it 직접 주소)로 받아 yt-dlp를 거치지 않습니다. 토큰이 없거나 API 수집이 실패하면 RSS(`fetch_leaks_rss()`)로 돌아갑니다. 로그인 없는 `www.reddit.com/*.json`은 403으로 막혀 있습니다.. 아카라이브 요청은 `arca_get()`을 거칩니다(3초 대기, 브라우저 UA).
 - **정규식 기반 파싱**: 아카라이브 파싱은 특정 class 이름(`vrow column`, `article-content`, `message`)에 의존합니다. 아카라이브 수집 결과가 0건이 되면 먼저 이 부분을 확인합니다.
 - **예약 실행 제약**: `pythonw.exe`로 실행되고 실행 시간 제한은 45분입니다. 하위 프로세스는 `CREATE_NO_WINDOW`로 띄우고, `claude` 호출 제한 시간은 1500초입니다. 예약 작업을 실행하는 사용자의 PATH에서 `claude`를 찾을 수 있어야 합니다.
 - `_images/`, `preview.pdf`, `logs/`는 실행 결과물입니다.
