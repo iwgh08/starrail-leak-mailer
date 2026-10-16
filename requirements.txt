@@ -3,3 +3,4 @@ feedparser
 python-dotenv
 yt-dlp
 imageio-ffmpeg
+pywebpush

@@ -5,3 +5,8 @@ logs/
 _images/
 characters.json
 __pycache__/
+site/
+alerted.json
+_alert/
+run.lock
+.wrangler/

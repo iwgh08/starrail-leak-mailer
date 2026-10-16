@@ -1,0 +1,10 @@
+# Cloudflare Pages 설정. hsr_news.py의 publish_site()가 저장소 루트에서 wrangler pages deploy를 실행할 때 읽는다.
+# functions/api/subscribe.js(알림 구독 저장)가 쓰는 KV 바인딩이 들어 있다. 비밀 값은 없음.
+name = "hsr-leaks"
+pages_build_output_dir = "./site"
+compatibility_date = "2026-10-01"
+
+# 웹앱 알림 구독 정보 (send_push()가 Cloudflare API로 읽음)
+[[kv_namespaces]]
+binding = "PUSH"
+id = "f264844b00474eca93a455551cfbc477"
