@@ -1,5 +1,5 @@
 # Registers two Windows scheduled tasks:
-#   "HSR News Digest" - runs hsr_news.py every day at the given times (summary report: PDF mail + web)
+#   "HSR News Digest" - runs hsr_news.py every day at the given times (summary report: web app + push, PDF mail as fallback)
 #   "HSR Leak Alerts" - runs hsr_news.py --alert every N minutes (instant push notifications)
 # Usage:  powershell -ExecutionPolicy Bypass -File register_task.ps1 [-Time "12:00,18:00"] [-AlertMinutes 10]
 #         -AlertMinutes 0 removes the alerts task.
@@ -19,13 +19,14 @@ if (Test-Path $Pythonw) { $Python = $Pythonw }
 $Times = $Time -split "[,\s]+" | Where-Object { $_ }
 
 # Also run on battery power (laptops), otherwise Windows skips the task.
+# The digest also wakes the PC from sleep (needs "Allow wake timers" enabled in Power Options).
 $Action = New-ScheduledTaskAction -Execute $Python -Argument "`"$Script`"" -WorkingDirectory $ScriptDir
 $Triggers = $Times | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $_ }
-$Settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable `
+$Settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable -WakeToRun `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 45)
 
 Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Triggers -Settings $Settings `
-    -Description "Honkai: Star Rail news digest to Gmail" -Force | Out-Null
+    -Description "Honkai: Star Rail leak digest (web app + push, mail as fallback)" -Force | Out-Null
 Write-Host "Registered '$TaskName' daily at $($Times -join ', ')"
 
 if ($AlertMinutes -gt 0) {

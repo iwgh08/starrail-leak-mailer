@@ -10,3 +10,6 @@ alerted.json
 _alert/
 run.lock
 .wrangler/
+preview_site/
+pending_push.json
+problem_push.json
