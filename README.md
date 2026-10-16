@@ -40,11 +40,11 @@ python hsr_news.py --dry-run   # 메일 없이 preview.pdf로 미리보기
 python hsr_news.py             # 실제 발송
 ```
 
-## 매일 자동 실행 (오전 8시)
+## 매일 자동 실행 (낮 12시, 오후 6시)
 
 ```
 powershell -ExecutionPolicy Bypass -File register_task.ps1
-powershell -ExecutionPolicy Bypass -File register_task.ps1 -Time 07:30   # 시간 변경
+powershell -ExecutionPolicy Bypass -File register_task.ps1 -Time "09:00,21:00"   # 시간 변경 (쉼표로 여러 개)
 ```
 
 - PC가 꺼져 있었다면 다음에 켰을 때 실행됩니다. Windows에 로그인한 상태여야 실행됩니다.

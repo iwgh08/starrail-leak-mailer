@@ -1,6 +1,6 @@
-# Registers a daily Windows scheduled task that runs hsr_news.py.
-# Usage:  powershell -ExecutionPolicy Bypass -File register_task.ps1 [-Time 08:00]
-param([string]$Time = "08:00")
+# Registers a Windows scheduled task that runs hsr_news.py every day at the given times.
+# Usage:  powershell -ExecutionPolicy Bypass -File register_task.ps1 [-Time "12:00,18:00"]
+param([string]$Time = "12:00,18:00")
 
 $TaskName = "HSR News Digest"
 $ScriptDir = $PSScriptRoot
@@ -11,15 +11,18 @@ $Python = (& python -c "import sys; print(sys.executable)").Trim()
 $Pythonw = Join-Path (Split-Path $Python) "pythonw.exe"
 if (Test-Path $Pythonw) { $Python = $Pythonw }
 
+# -File passes "12:00,18:00" as one string, so split it here.
+$Times = $Time -split "[,\s]+" | Where-Object { $_ }
+
 $Action = New-ScheduledTaskAction -Execute $Python -Argument "`"$Script`"" -WorkingDirectory $ScriptDir
-$Trigger = New-ScheduledTaskTrigger -Daily -At $Time
+$Triggers = $Times | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $_ }
 $Settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 45)
 
-Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings `
+Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Triggers -Settings $Settings `
     -Description "Honkai: Star Rail news digest to Gmail" -Force | Out-Null
 
-Write-Host "Registered '$TaskName' daily at $Time"
+Write-Host "Registered '$TaskName' daily at $($Times -join ', ')"
 Write-Host "  Python: $Python"
 Write-Host "  Script: $Script"
 Write-Host "Test now:  Start-ScheduledTask -TaskName '$TaskName'"

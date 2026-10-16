@@ -13,7 +13,7 @@ pip install -r requirements.txt
 python hsr_news.py --dry-run                 # 메일 없이 preview.pdf와 _images/report.html 생성, seen.json은 갱신 안 함
 python hsr_news.py --dry-run --ignore-seen   # 이미 보낸 글도 다시 처리 (테스트용)
 python hsr_news.py                           # 실제 실행: 메일 발송 후 seen.json 갱신
-powershell -ExecutionPolicy Bypass -File register_task.ps1 [-Time 07:30]   # 예약 작업 "HSR News Digest" 등록
+powershell -ExecutionPolicy Bypass -File register_task.ps1 [-Time "12:00,18:00"]   # 예약 작업 "HSR News Digest" 등록 (기본 12시·18시)
 ```
 
 테스트나 린터는 없습니다. 변경 후에는 `--dry-run`으로 실행해 `preview.pdf`와 `_images/report.html`을 확인합니다. dry-run도 Reddit·아카라이브에 실제로 접속하고 `claude -p`를 호출하므로 몇 분 걸리고 구독 사용량이 차감됩니다. 실행 기록은 `logs/YYYY-MM.log`에 남습니다.

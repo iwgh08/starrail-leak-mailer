@@ -306,13 +306,19 @@ def download_video_direct(url, video, max_bytes=40 * 1024 * 1024):
         return False
 
 
+_ytdlp_blocked = False  # yt-dlp가 Reddit 로그인 요구로 막히면 이번 실행에서는 더 시도하지 않음
+
+
 def video_frames(it, n, count=4):
     """영상을 받아 고르게 프레임 count장을 뽑는다 (직접 주소 또는 yt-dlp 480p + ffmpeg)."""
+    global _ytdlp_blocked
     import imageio_ffmpeg
     ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
     video = WORK_DIR / f"{n:02d}_video.mp4"
     no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     direct = bool(it.get("video_url")) and download_video_direct(it["video_url"], video)
+    if not direct and _ytdlp_blocked:
+        raise RuntimeError("영상 다운로드 건너뜀 (Reddit이 로그인 없는 영상 다운로드를 막음)")
     for _ in range(0 if direct else 2):
         reddit_wait()
         dl = subprocess.run(
@@ -323,6 +329,9 @@ def video_frames(it, n, count=4):
         # yt-dlp의 응답 헤더는 볼 수 없으니 요청 제한 창 하나(60초)를 쓴 것으로 본다
         _reddit_after(61)
         if video.exists():
+            break
+        if "authentication" in dl.stderr.lower():  # 다시 시도해도 같은 결과이므로 바로 포기
+            _ytdlp_blocked = True
             break
     if not video.exists():
         raise RuntimeError(f"영상 다운로드 실패: {dl.stderr.strip()[-200:]}")
@@ -771,10 +780,12 @@ def main():
             log.exception("%s 수집 실패 (건너뜀)", name)
     items = [it for it in fetched if it["id"] not in seen_set]
     log.info("새 글 %d건", len(items))
-    today = datetime.now(KST).strftime("%Y-%m-%d")
+    now = datetime.now(KST)
+    today = now.strftime("%Y-%m-%d")
+    slot = f"{today} {now:%H}시"  # 하루 두 번(12시·18시) 보내므로 제목에 시각을 붙임
 
     if not items:
-        subject = f"[스타레일 찌라시] {today} (새 유출 없음)"
+        subject = f"[스타레일 유출] {slot} (새 유출 없음)"
         body = "<p>오늘은 새 유출 정보가 없습니다.</p>"
         if args.dry_run:
             log.info("새 글 없음 (dry-run, 발송 안 함)")
@@ -795,7 +806,7 @@ def main():
     log.info("리포트에 %d건 포함 (유출 아닌 글·중복 %d건 제외/합침)", len(shown), len(items) - len(shown))
 
     report = build_report(shown, overview, glossary, today)
-    pdf_path = (BASE_DIR / "preview.pdf") if args.dry_run else (WORK_DIR / f"HSR_leaks_{today}.pdf")
+    pdf_path = (BASE_DIR / "preview.pdf") if args.dry_run else (WORK_DIR / f"HSR_leaks_{now:%Y-%m-%d_%H%M}.pdf")
     has_pdf = True
     try:
         make_pdf(report, pdf_path)
@@ -804,7 +815,7 @@ def main():
         log.exception("PDF 생성 실패")
         has_pdf = False
 
-    subject = f"[스타레일 찌라시] {today} ({len(shown)}건)"
+    subject = f"[스타레일 유출] {slot} ({len(shown)}건)"
     body = mail_body(shown, overview, has_pdf)
     if args.dry_run:
         log.info("미리보기 저장: preview.pdf, _images/report.html (제목: %s)", subject)
