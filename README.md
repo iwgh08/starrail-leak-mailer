@@ -28,7 +28,7 @@
 - 같은 유출이 두 곳에 모두 올라오면 한 항목으로 합치고, 출처는 둘 다 표시합니다.
 - 요약은 이 PC에 설치된 Claude Code(`claude -p`, Sonnet 모델)로 합니다. API 키 없이 Claude 구독 사용량에서 조금씩 차감됩니다.
 - Reddit 영상은 로그인 없이 v.redd.it에서 직접 받아 장면 4장을 뽑아 읽습니다.
-- 캐릭터 이름은 HoYoLAB 위키의 한국 서버 표기를 따릅니다(`characters.json`에 7일간 저장).
+- 캐릭터·적·NPC 이름은 HoYoLAB 위키의 한국 서버 표기를 따릅니다(`characters.json`·`names.json`에 7일간 저장). 전투·세계관 용어(필살기, 강인성, 에이언즈 등)는 `hsr_news.py`의 `FIXED_TERMS`에 들어 있습니다.
 - 이미 정리한 글은 `seen.json`, 이미 알린 글은 `alerted.json`에 기록합니다. 정리 리포트를 다시 만들려면 `--ignore-seen`을 씁니다.
 - Reddit은 로그인 없이 1분에 1번만 요청할 수 있어서 기다렸다가 요청합니다. Reddit API 앱 정보를 넣으면 1분에 약 100번까지 늘어납니다(아래 4번).
 

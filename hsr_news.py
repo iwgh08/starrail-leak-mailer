@@ -68,6 +68,7 @@ ARCA_MAX_IMAGES = 3         # 아카라이브 글 하나에서 받을 최대 이
 BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 KST = timezone(timedelta(hours=9))
 GLOSSARY_FILE = BASE_DIR / "characters.json"  # HoYoWiki 캐릭터 사전 캐시
+NAMES_FILE = BASE_DIR / "names.json"           # HoYoWiki 적·NPC 이름 사전 캐시
 WIKI_URL = "https://sg-wiki-api.hoyolab.com/hoyowiki/hsr/wapi/get_entry_page_list"
 EDGE_PATHS = [
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -479,10 +480,15 @@ def release_lock():
 # ---------- 요약 ----------
 
 NAMING_RULES = """[이름 표기 규칙] headline, summary, overview의 캐릭터·용어 이름은 반드시 한국 서버 공식 표기를 쓰세요.
-- 아래 "공식 한국어 표기 사전"에 있는 이름은 사전의 한국어 표기 그대로 씁니다. 예: Firefly → 반디, Silver Wolf → 은랑.
+- 아래 "공식 한국어 표기 사전"(용어·캐릭터·적·NPC)에 있는 이름은 사전의 한국어 표기 그대로 씁니다.
+  예: Firefly → 반디, Silver Wolf → 은랑, Ultimate → 필살기, Toughness → 강인성, Lightning-Lord → 신군.
+  궁극기·기본 공격·인성처럼 다른 게임이나 커뮤니티에서 쓰는 말로 바꾸지 마세요.
 - 커뮤니티 약칭도 풀어서 사전 표기로 바꿉니다. 예: SW → 은랑, FF → 반디, RM → 완•매, TB/MC → 개척자.
   "Kafka SP", "Firefly SP"처럼 SP·IF 같은 접미어는 유지합니다 (예: 카프카 SP).
-- 사전에 없는 미출시 캐릭터나 고유명사는 한글로 음역한 뒤 영문을 괄호로 함께 적습니다. 예: 폴카 카카몬드(Polka Kakamond).
+- 사전에 없는 이름은 한국어 이름을 기억으로 짐작하지 말고, 한글로 음역한 뒤 영문을 괄호로 함께 적습니다.
+  예: 폴카 카카몬드(Polka Kakamond). 시즌 효과·아이템·스킬 이름처럼 뜻이 있는 이름은 뜻을 옮기고 영문을 괄호로 적습니다.
+  예: 지고의 환희(Supreme Joy).
+- 입력에 함께 준 이전 글·정리(최근에 이미 다룬 유출, 지금까지의 정리)에 이미 한국어로 옮긴 미출시 용어가 있으면 그 표기를 그대로 씁니다.
 - origin과 유출러 이름(CyrLeak, Seele Leaks 등)은 영문 그대로 둡니다."""
 
 # 모아보기·검색·중복 판단에 쓰는 필드 (정리 리포트와 실시간 알림이 같이 씀)
@@ -523,12 +529,12 @@ PROMPT = """당신은 게임 「붕괴: 스타레일」 유출(리크) 정보를
   · summary(유출 내용)와 겹치지 않게, 이해를 돕는 배경 지식만 쓰세요.
 """ + TAG_RULES + """
 - changes: "최근에 이미 다룬 유출" 목록에 같은 캐릭터·시스템에 대한 이전 유출이 있고 이번 글에서 수치·키트·일정 등이 바뀌었으면
-  무엇이 어떻게 바뀌었는지 1문장(예: "베타 v1 대비 궁극기 배율 220% → 250%"). 비교할 유출이 없거나 바뀐 점이 없으면 "".
+  무엇이 어떻게 바뀌었는지 1문장(예: "베타 v1 대비 필살기 배율 220% → 250%"). 비교할 유출이 없거나 바뀐 점이 없으면 "".
 
 마지막으로
 - overview: 오늘 유출의 핵심을 3줄 이내로 정리하세요.
 - glossary: 오늘 글들에 등장한, 일반 플레이어가 모를 수 있는 용어 풀이 5~12개.
-  예: 노바플레어, 피널리티(Finality), 특수 성혼(Ex-Eidolon), 이상 중재, 보러시티, SP, IF, STC, 베타 v1 같은 것.
+  예: 노바플레어, 피널리티(Finality), 특수 성혼(Ex-Eidolon), 이상 중재, 탐식(Voracity), SP, IF, STC, 베타 v1 같은 것.
   각 항목은 {"term": "용어 (영문)", "explanation": "1~2문장 설명"}. 필요하면 WebSearch로 찾아서 정확히 쓰세요.
 
 [웹 검색 사용 규칙 — 반드시 지키세요]
@@ -600,7 +606,7 @@ LORE_PROMPT = """당신은 게임 「붕괴: 스타레일」의 스토리를 한
 [이름 표기] 정식 출시된 이야기라 인물·장소·세력·개념에는 모두 한국 서버 공식 이름이 있습니다.
 - 아래 사전의 이름은 사전 표기 그대로 씁니다. 캐릭터 항목 괄호 끝의 세력·지역 이름(예: 우주정거장 「헤르타」, 선주 「나부」,
   앰포리어스, 이상 낙원, 은하열차)도 공식 표기입니다.
-- 사전에 없는 이름(NPC, 적, 에이언, 장소, 세력, 버전 제목 등)은 한국어로 검색해(예: "붕괴 스타레일 Phantylia", "스타레일 ○○ 나무위키")
+- 사전에 없는 이름(에이언즈, 장소, 세력, 버전 제목, 사전에 없는 NPC·적 등)은 한국어로 검색해(예: "붕괴 스타레일 Phantylia", "스타레일 ○○ 나무위키")
   한국어 자료에 쓰인 이름을 씁니다. 영문을 직접 한글로 옮겨 새 이름을 만들지 마세요. 끝내 확인하지 못하면 영문 그대로 씁니다.
 - 제목과 본문에는 영문을 괄호로 덧붙이지 않습니다. concepts의 term만 "한국어 (영문)" 형식입니다.
 
@@ -612,7 +618,7 @@ LORE_PROMPT = """당신은 게임 「붕괴: 스타레일」의 스토리를 한
 - versions에는 버전 범위만 씁니다(예: "1.0" 또는 "2.0~2.3").
 
 [항목]
-- intro: 게임의 기본 설정(은하열차, 개척자, 스텔라론, 에이언과 운명의 길 등) 3~5문장.
+- intro: 게임의 기본 설정(은하열차, 개척자, 스텔라론, 에이언즈와 운명의 길 등) 3~5문장.
 - arcs: 출시 순서대로 무대(장)별 정리. 각 항목은 title(무대 이름, 예: "야릴로-Ⅵ"), versions(해당 버전),
   summary(줄거리 5~10문장, 흐름에 따라 2~3문단으로 나누고 문단 사이는 "\\n"), characters(주요 등장인물),
   key_points(결말이나 다음 이야기로 이어지는 핵심 1~4개).
@@ -627,7 +633,8 @@ LORE_PROMPT = """당신은 게임 「붕괴: 스타레일」의 스토리를 한
  "now": "...", "concepts": [{"term": "...", "explanation": "..."}], "sources": []}"""
 
 
-# 운명의 길·속성·자주 나오는 용어의 한국 서버 표기 (캐릭터 이름은 HoYoWiki에서 자동으로 받음)
+# 운명의 길·속성·전투 용어·세계관 용어의 한국 서버 표기 (캐릭터·적·NPC 이름은 HoYoWiki에서 자동으로 받음)
+# 전투 용어는 HoYoWiki 한국어판 스킬 설명, 세계관 용어는 공식 소식·나무위키에서 확인한 표기
 FIXED_TERMS = {
     "Destruction": "파멸", "The Hunt": "수렵", "Erudition": "지식", "Harmony": "화합", "Nihility": "공허",
     "Preservation": "보존", "Abundance": "풍요", "Remembrance": "기억", "Elation": "환락",
@@ -635,55 +642,93 @@ FIXED_TERMS = {
     "Quantum": "양자", "Imaginary": "허수",
     "Eidolon": "성혼", "Light Cone": "광추", "Warp": "워프", "Stellar Jade": "성옥", "Trace": "행적",
     "Relic": "유물", "Planar Ornament": "차원 장신구", "Memory of Chaos": "혼돈의 기억",
-    "Pure Fiction": "허구 이야기", "Apocalyptic Shadow": "종말의 환영",
+    "Pure Fiction": "허구 이야기", "Apocalyptic Shadow": "종말의 환영", "Anomaly Arbitration": "이상 중재",
     "Simulated Universe": "시뮬레이션 우주", "Currency Wars": "화폐 전쟁", "Trailblazer": "개척자",
+    # 전투
+    "Basic ATK": "일반 공격", "Skill": "전투 스킬", "Ultimate": "필살기", "Talent": "특성", "Technique": "비술",
+    "Skill Point": "전투 스킬 포인트", "Follow-up ATK": "추가 공격", "Action Advance": "행동 게이지 증가",
+    "Toughness": "강인성", "Weakness Break": "약점 격파", "Break Effect": "격파 특수효과", "Memosprite": "기억 정령",
+    "Elation Skill": "환락 스킬", "Punchline": "웃음 포인트",
+    "Lightning-Lord": "신군", "Slashed Dream": "꿈 조각", "Crimson Knot": "아즈사카", "Squama Sacrosancta": "역린",
+    # 세계관
+    "Aeon": "에이언즈", "Emanator": "영사", "Nanook": "나누크", "Antimatter Legion": "반물질 군단",
+    "Lord Ravager": "절멸 대군", "Voracity": "탐식", "Asat Pramad": "아삿 프라마드", "Planarcadia": "이상 낙원",
+    "Genius Society": "지니어스 클럽", "Ten Stonehearts": "10인의 스톤하트",
 }
+
+
+def wiki_entries(menu_id, lang):
+    """HoYoWiki 목록(menu_id: 104 캐릭터, 105 NPC, 112 적)의 모든 항목을 {entry_page_id: 항목}으로 받는다."""
+    entries_by_id, page = {}, 1
+    while True:
+        resp = requests.post(
+            WIKI_URL,
+            json={"filters": [], "menu_id": menu_id, "page_num": page, "page_size": 50, "use_es": True},
+            headers={"x-rpc-language": lang, "x-rpc-wiki_app": "hsr", "User-Agent": USER_AGENT,
+                     "Origin": "https://wiki.hoyolab.com", "Referer": "https://wiki.hoyolab.com/"},
+            timeout=20,
+        )
+        resp.raise_for_status()
+        entries = resp.json()["data"]["list"]
+        if not entries:
+            return entries_by_id
+        entries_by_id.update({e["entry_page_id"]: e for e in entries})
+        page += 1
+
+
+def wiki_name(entry):
+    return " ".join(entry["name"].split())  # 한국어 이름에 섞인 줄바꿈 없는 공백(\xa0)도 보통 공백으로
+
+
+def cached_wiki(path, label, build):
+    """7일 안에 만든 path가 있으면 읽고, 아니면 build()로 다시 만들어 저장한다. 실패하면 이전 사전을 쓴다."""
+    if path.exists() and time.time() - path.stat().st_mtime < 7 * 86400:
+        return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        mapping = build()
+        path.write_text(json.dumps(mapping, ensure_ascii=False, indent=1), encoding="utf-8")
+        log.info("%s 사전 갱신: %d개", label, len(mapping))
+        return mapping
+    except Exception:
+        log.exception("%s 사전 갱신 실패 → 이전 사전 사용", label)
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
 def fetch_character_names():
     """HoYoWiki 캐릭터 목록으로 {영문: {"ko": 한국어 이름, "info": "운명의 길·속성·등급·세력"}} 사전을 만든다. 7일간 캐시."""
-    if GLOSSARY_FILE.exists() and time.time() - GLOSSARY_FILE.stat().st_mtime < 7 * 86400:
-        return json.loads(GLOSSARY_FILE.read_text(encoding="utf-8"))
-
-    def all_entries(lang):
-        entries_by_id, page = {}, 1
-        while True:
-            resp = requests.post(
-                WIKI_URL,
-                json={"filters": [], "menu_id": "104", "page_num": page, "page_size": 50, "use_es": True},
-                headers={"x-rpc-language": lang, "x-rpc-wiki_app": "hsr", "User-Agent": USER_AGENT,
-                         "Origin": "https://wiki.hoyolab.com", "Referer": "https://wiki.hoyolab.com/"},
-                timeout=20,
-            )
-            resp.raise_for_status()
-            entries = resp.json()["data"]["list"]
-            if not entries:
-                return entries_by_id
-            entries_by_id.update({e["entry_page_id"]: e for e in entries})
-            page += 1
-
     def info(entry):
         fv = entry.get("filter_values", {})
         parts = [v for key in ("character_paths", "character_combat_type", "character_rarity", "character_factions")
                  for v in fv.get(key, {}).get("values", [])]
         return "·".join(parts)
 
-    try:
-        en, ko = all_entries("en-us"), all_entries("ko-kr")
-        mapping = {en[k]["name"].strip(): {"ko": ko[k]["name"].strip(), "info": info(ko[k])} for k in en if k in ko}
-        GLOSSARY_FILE.write_text(json.dumps(mapping, ensure_ascii=False, indent=1), encoding="utf-8")
-        log.info("캐릭터 이름 사전 갱신: %d명", len(mapping))
+    def build():
+        en, ko = wiki_entries("104", "en-us"), wiki_entries("104", "ko-kr")
+        return {wiki_name(en[k]): {"ko": wiki_name(ko[k]), "info": info(ko[k])} for k in en if k in ko}
+
+    return cached_wiki(GLOSSARY_FILE, "캐릭터 이름", build)
+
+
+def fetch_other_names():
+    """HoYoWiki 적·NPC 목록으로 {영문: 한국어 이름} 사전을 만든다. 7일간 캐시."""
+    def build():
+        mapping = {}
+        for menu_id in ("112", "105"):  # 적, NPC
+            en, ko = wiki_entries(menu_id, "en-us"), wiki_entries(menu_id, "ko-kr")
+            mapping.update({wiki_name(en[k]): wiki_name(ko[k]) for k in en
+                            if k in ko and wiki_name(en[k]) != wiki_name(ko[k])})
         return mapping
-    except Exception:
-        log.exception("캐릭터 이름 사전 갱신 실패 → 이전 사전 사용")
-        return json.loads(GLOSSARY_FILE.read_text(encoding="utf-8")) if GLOSSARY_FILE.exists() else {}
+
+    return cached_wiki(NAMES_FILE, "적·NPC 이름", build)
 
 
 def glossary_text():
     terms = [f"{en} = {ko}" for en, ko in FIXED_TERMS.items()]
     chars = [f"{en} = {c['ko']} ({c['info']})" for en, c in fetch_character_names().items()]
+    names = [f"{en} = {ko}" for en, ko in fetch_other_names().items()]
     return ("공식 한국어 표기 사전 (영문 = 한국 서버 표기):\n" + "\n".join(terms)
-            + "\n\n캐릭터 (영문 = 한국 서버 표기 (운명의 길·속성·등급·세력)):\n" + "\n".join(chars))
+            + "\n\n캐릭터 (영문 = 한국 서버 표기 (운명의 길·속성·등급·세력)):\n" + "\n".join(chars)
+            + "\n\n적·NPC (영문 = 한국 서버 표기):\n" + "\n".join(names))
 
 
 def run_claude_json(text, tools="Read", timeout=600):
@@ -1516,14 +1561,15 @@ def update_story(items, now):
     story_file = SITE_DIR / "story.json"
     story = load_json(story_file, {})
     index = load_items()
+    glossary = glossary_text()
     for v in versions[:3]:
         entries = sorted((e for e in index if e["topic"] == "스토리" and e["version"] == v), key=lambda e: e["added"])
         listing = "\n".join(f"- {e['date']} [{e['leaker'] or '출처 미상'}] {e['headline']}: {e['summary']}"
                             for e in entries[-40:])
         previous = (story.get(v) or {}).get("summary") or "(아직 없음)"
         try:
-            data = run_claude_json(f"{STORY_PROMPT.format(version=v or '버전 미상')}\n\n지금까지의 정리:\n{previous}\n\n"
-                                   f"스토리 유출 목록:\n{listing}", tools="Read", timeout=600)
+            data = run_claude_json(f"{STORY_PROMPT.format(version=v or '버전 미상')}\n\n{glossary}\n\n"
+                                   f"지금까지의 정리:\n{previous}\n\n스토리 유출 목록:\n{listing}", tools="Read", timeout=600)
             story[v] = {"summary": str(data["summary"]).strip(), "updated": now.isoformat(),
                         "items": [e["id"] for e in entries]}
             log.info("스토리 정리 갱신: %s (유출 %d건)", v or "버전 미상", len(entries))

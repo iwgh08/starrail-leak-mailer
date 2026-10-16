@@ -4,6 +4,7 @@ preview.pdf
 logs/
 _images/
 characters.json
+names.json
 __pycache__/
 site/
 alerted.json
