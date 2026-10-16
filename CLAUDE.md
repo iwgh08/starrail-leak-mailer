@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 개요
 
-붕괴: 스타레일 유출(찌라시) 글을 매일 아침 모아 Claude로 한국어 요약을 만들고, PDF 리포트로 Gmail에 보내는 Windows용 단일 스크립트(`hsr_news.py`)입니다. 수집처는 Reddit r/HonkaiStarRail_leaks(RSS)와 아카라이브 붕괴 스타레일 채널의 '찌라시'·'테섭' 게시판(HTML 파싱, 최근 48시간 글만)입니다. 사용자에게 보이는 글, 코드 주석, 로그 메시지, README는 모두 한국어이므로 계속 한국어로 씁니다.
+붕괴: 스타레일 유출(찌라시) 글을 매일 낮 12시·오후 6시에 모아 Claude로 한국어 요약을 만들고, PDF 리포트로 Gmail에 보내는 Windows용 단일 스크립트(`hsr_news.py`)입니다. 수집처는 Reddit r/HonkaiStarRail_leaks(RSS)와 아카라이브 붕괴 스타레일 채널의 '찌라시'·'테섭' 게시판(HTML 파싱, 최근 48시간 글만)입니다. 사용자에게 보이는 글, 코드 주석, 로그 메시지, README는 모두 한국어이므로 계속 한국어로 씁니다.
 
 ## 명령어
 
