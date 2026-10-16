@@ -46,6 +46,7 @@ powershell -ExecutionPolicy Bypass -File register_task.ps1 [-Time "12:00,18:00"]
 - `send_push()`는 `wrangler.toml`의 KV(binding `PUSH`) id로 Cloudflare API에서 `sub:*` 구독을 읽어 pywebpush로 보내고, 404/410이 오면 그 구독을 지웁니다. 3건 이하면 글마다, 더 많으면 묶어서 한 번 보냅니다(`alert_messages()`).
 - 구독은 목록 페이지의 '새 유출 알림 켜기'(`PUSH_HTML`) → `functions/api/subscribe.js`(Pages Function) → KV로 저장됩니다. 서비스 워커는 `SW_JS`(`site/sw.js`)이며 알림을 누르면 해당 글 앵커로 엽니다. iOS는 홈 화면에 추가한 앱에서만 웹 푸시를 쓸 수 있습니다(16.4 이상).
 - `wrangler pages deploy`는 저장소 루트에서 실행되므로 `functions/`와 `wrangler.toml`(KV 바인딩)이 함께 올라갑니다.
+- 사이트 안의 링크·스크립트·API 경로는 모두 `/`로 시작하는 절대 경로로 씁니다(`WEB_HEAD`, `PUSH_HTML`, 목록 링크 등). `site/404.html`도 꼭 있어야 합니다. 404.html이 없으면 Pages가 없는 주소에도 목록 페이지를 200으로 보여 주는데(SPA 방식), 그 상태에서 상대 경로 링크를 누르면 주소가 계속 덧붙어 페이지가 열리지 않습니다. `write_site_shell()`이 404.html과 빈 `live/index.html`까지 매번 만듭니다.
 
 ## 유의할 점
 

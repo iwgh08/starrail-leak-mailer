@@ -747,8 +747,8 @@ def build_report(items, overview, glossary, today, web=False, img_names=None):
     if glossary:
         rows = "".join(f'<dt>{esc(g.get("term"))}</dt><dd>{esc(g.get("explanation"))}</dd>' for g in glossary)
         terms_html = f'<div class="terms"><h2>📖 알아두면 좋은 용어</h2><dl>{rows}</dl></div>'
-    head = f"{WEB_HEAD.format(root='../../')}<style>{WEB_CSS}</style>" if web else ""
-    back = '<a class="back" href="../../">← 목록</a>' if web else ""
+    head = f"{WEB_HEAD}<style>{WEB_CSS}</style>" if web else ""
+    back = '<a class="back" href="/">← 목록</a>' if web else ""
     return f"""<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><title>붕괴: 스타레일 유출 정보 {today}</title><style>{CSS}</style>{head}</head>
 <body>
@@ -809,8 +809,10 @@ WEB_HEAD = """<meta name="viewport" content="width=device-width, initial-scale=1
 <meta name="apple-mobile-web-app-title" content="스타레일 유출">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#000000">
-<link rel="apple-touch-icon" href="{root}icon-180.png">
-<link rel="manifest" href="{root}manifest.webmanifest" crossorigin="use-credentials">"""  # Access 로그인 쿠키를 같이 보내야 읽힘
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">"""  # Access 로그인 쿠키를 같이 보내야 읽힘
+# 사이트 안의 링크는 모두 /로 시작하는 절대 경로로 쓴다. Pages는 없는 주소에 404.html을 보여 주지만,
+# 상대 경로를 쓰면 잘못된 주소에서 누른 링크가 계속 덧붙어 엉뚱한 주소가 된다.
 
 # 리포트 페이지를 화면(아이폰)에서 볼 때만 덮어쓰는 CSS. PDF 인쇄에는 영향 없음.
 WEB_CSS = """
@@ -858,7 +860,7 @@ self.addEventListener("activate", e => e.waitUntil(self.clients.claim()));
 self.addEventListener("push", e => {
   const d = e.data ? e.data.json() : {};
   e.waitUntil(self.registration.showNotification(d.title || "스타레일 유출",
-    {body: d.body || "", icon: "icon-180.png", data: {url: d.url || "./"}}));
+    {body: d.body || "", icon: "/icon-180.png", data: {url: d.url || "/"}}));
 });
 self.addEventListener("notificationclick", e => {
   e.notification.close();
@@ -875,14 +877,14 @@ const btn = document.getElementById("push-btn"), msg = document.getElementById("
 const ios = /iPhone|iPad/.test(navigator.userAgent);
 const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
 const keyBytes = s => Uint8Array.from(atob((s + "===".slice((s.length + 3) % 4)).replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
-const save = sub => fetch("api/subscribe", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(sub)}).then(r => r.ok);
+const save = sub => fetch("/api/subscribe", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(sub)}).then(r => r.ok);
 async function init() {
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
     msg.textContent = ios && !standalone ? "알림을 받으려면 공유 → 홈 화면에 추가한 뒤 그 앱으로 여세요."
                                          : "이 기기에서는 웹 알림을 쓸 수 없어요 (iOS 16.4 이상 필요).";
     return;
   }
-  const reg = await navigator.serviceWorker.register("sw.js");
+  const reg = await navigator.serviceWorker.register("/sw.js");
   const sub = await reg.pushManager.getSubscription();
   if (sub && Notification.permission === "granted") {
     msg.textContent = "🔔 새 유출 알림 켜짐";
@@ -946,15 +948,25 @@ def load_reports():
 
 
 def write_site_shell(reports):
-    """날짜별 목록 페이지(index.html)·manifest·서비스 워커·아이콘을 만든다."""
+    """날짜별 목록 페이지(index.html)·⚡실시간 페이지·404 페이지·manifest·서비스 워커·아이콘을 만든다."""
     SITE_DIR.mkdir(exist_ok=True)
     if not (SITE_DIR / "icon-180.png").exists():
         make_icon(SITE_DIR / "icon-180.png")
     (SITE_DIR / "sw.js").write_text(SW_JS, encoding="utf-8")
-    manifest = {"name": "스타레일 유출", "short_name": "스타레일 유출", "start_url": "./", "scope": "./",
+    manifest = {"name": "스타레일 유출", "short_name": "스타레일 유출", "start_url": "/", "scope": "/",
                 "display": "standalone", "background_color": "#000000", "theme_color": "#000000",
-                "icons": [{"src": "icon-180.png", "sizes": "180x180", "type": "image/png"}]}
+                "icons": [{"src": "/icon-180.png", "sizes": "180x180", "type": "image/png"}]}
     (SITE_DIR / "manifest.webmanifest").write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    # 404.html이 없으면 Pages가 없는 주소에도 목록 페이지를 보여 줘서(SPA 방식) 링크가 꼬인다
+    (SITE_DIR / "404.html").write_text(f"""<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>페이지 없음</title>
+{WEB_HEAD}<style>{INDEX_CSS}</style></head>
+<body><main>
+<h1>페이지를 찾을 수 없어요</h1>
+<div class="sub">주소가 바뀌었거나 보관 기간이 지난 리포트일 수 있어요.</div>
+<a class="run" href="/"><div class="row"><span class="time">← 목록으로</span></div></a>
+</main></body></html>""", encoding="utf-8")
+    write_live_page()
 
     sections = []
     for date, runs in itertools.groupby(sorted(reports, key=lambda r: r["id"], reverse=True), key=lambda r: r["date"]):
@@ -962,18 +974,18 @@ def write_site_shell(reports):
         links = []
         for r in runs:
             ov = f'<div class="ov">{esc(r["overview"])}</div>' if r["overview"] else ""
-            links.append(f'<a class="run" href="r/{r["id"]}/"><div class="row"><span class="time">{r["time"]}</span>'
+            links.append(f'<a class="run" href="/r/{r["id"]}/"><div class="row"><span class="time">{r["time"]}</span>'
                          f'<span class="count">{r["count"]}건</span></div>{ov}</a>')
         sections.append(f'<h2>{date} ({weekday})</h2>{"".join(links)}')
     body = "".join(sections) or '<p class="empty">아직 보관된 리포트가 없습니다.</p>'
-    live = (f'<a class="run live" href="live/"><div class="row"><span class="time">⚡ 실시간 유출</span>'
+    live = (f'<a class="run live" href="/live/"><div class="row"><span class="time">⚡ 실시간 유출</span>'
             f'<span class="count">{len(load_feed())}건</span></div>'
             f'<div class="ov">새 글이 올라오면 바로 알림으로 보낸 글 모음 (최근 {LIVE_KEEP_DAYS}일)</div></a>')
     vapid = os.environ.get("VAPID_PUBLIC_KEY")
     push = PUSH_HTML.replace("__VAPID_PUBLIC_KEY__", vapid) if vapid else ""
     (SITE_DIR / "index.html").write_text(f"""<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><title>스타레일 유출</title>
-{WEB_HEAD.format(root="")}<style>{INDEX_CSS}</style></head>
+{WEB_HEAD}<style>{INDEX_CSS}</style></head>
 <body><main>
 <h1>스타레일 유출</h1>
 <div class="sub">매일 12시·18시 정리 · 최근 {SITE_KEEP_DAYS}일 보관 · 미확인 유출 정보</div>
@@ -1074,7 +1086,7 @@ def add_live(items, now):
     img_dir = live_dir / "img"
     img_dir.mkdir(parents=True, exist_ok=True)
     prefix = f"{now:%Y%m%d%H%M}_"
-    new = [feed_entry(it, [f"img/{shrink_image(WORK_DIR / f, img_dir, prefix)}" for f in it["images"]], now)
+    new = [feed_entry(it, [f"/live/img/{shrink_image(WORK_DIR / f, img_dir, prefix)}" for f in it["images"]], now)
            for it in items]
     new_ids = {e["id"] for e in new}
     cutoff = now - timedelta(days=LIVE_KEEP_DAYS)
@@ -1082,24 +1094,30 @@ def add_live(items, now):
             if e["id"] not in new_ids and datetime.fromisoformat(e["alerted"]) >= cutoff] + new
     used = {f for e in feed for f in e["images"]}
     for f in img_dir.iterdir():
-        if f"img/{f.name}" not in used:
+        if f"/live/img/{f.name}" not in used:
             f.unlink()
     (live_dir / "feed.json").write_text(json.dumps(feed, ensure_ascii=False, indent=1), encoding="utf-8")
+    write_site_shell(load_reports())  # 실시간 페이지와 목록의 건수도 같이 다시 만듦
+    log.info("실시간 페이지 저장: %d건 추가 (모두 %d건)", len(new), len(feed))
 
-    entries = sorted((from_feed(e) for e in feed), key=lambda e: (e["alerted"], e["posted"]), reverse=True)
-    cards = "".join(render_card(e, anchor=anchor_id(e["id"])) for e in entries)
+
+def write_live_page():
+    """⚡실시간 페이지(live/index.html)를 feed.json으로 다시 만든다. 알림이 아직 없어도 빈 페이지를 만든다."""
+    live_dir = SITE_DIR / "live"
+    live_dir.mkdir(parents=True, exist_ok=True)
+    entries = sorted((from_feed(e) for e in load_feed()), key=lambda e: (e["alerted"], e["posted"]), reverse=True)
+    cards = ("".join(render_card(e, anchor=anchor_id(e["id"])) for e in entries)
+             or '<p class="none">아직 알림을 보낸 글이 없습니다. 새 유출 글이 올라오면 여기에 쌓입니다.</p>')
     (live_dir / "index.html").write_text(f"""<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><title>실시간 유출</title><style>{CSS}</style>
-{WEB_HEAD.format(root="../")}<style>{WEB_CSS}</style></head>
+{WEB_HEAD}<style>{WEB_CSS}</style></head>
 <body>
-<a class="back" href="../">← 목록</a>
+<a class="back" href="/">← 목록</a>
 <h1>⚡ 실시간 유출</h1>
 <div class="sub">새 글이 올라오면 바로 알림으로 보낸 글 · 최근 {LIVE_KEEP_DAYS}일 · 배경 설명과 용어 풀이는 12시·18시 정리 리포트에 들어갑니다</div>
 <div class="warn">⚠ 아래 내용은 공식 발표가 아닌 <b>미확인 유출 정보</b>이며 실제 출시 때 바뀌거나 사실이 아닐 수 있습니다.</div>
 {cards}
 </body></html>""", encoding="utf-8")
-    write_site_shell(load_reports())
-    log.info("실시간 페이지 저장: %d건 추가 (모두 %d건)", len(new), len(feed))
 
 
 def alert_messages(items):
